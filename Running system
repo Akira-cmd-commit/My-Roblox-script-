@@ -1,0 +1,108 @@
+-- [[ CONFIGURATION ]] --
+local STAMINA_MAX = 100
+local DRAIN_SPEED = 0.4 -- Balanced for a "Doors" feel
+local REGEN_SPEED = 0.5
+local SPRINT_SPEED = 24
+local WALK_SPEED = 16
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+local cam = workspace.CurrentCamera
+
+-- [[ IMPROVED BODYCAM & FOV ]] --
+local bobbing = 0
+local tilt = 0
+local velocity = 0
+
+-- [[ DOORS STAMINA GUI ]] --
+local sg = Instance.new("ScreenGui", player.PlayerGui)
+local barBack = Instance.new("Frame", sg)
+barBack.Size = UDim2.new(0, 150, 0, 4)
+barBack.Position = UDim2.new(0.5, -75, 0.9, 0)
+barBack.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+barBack.BorderSizePixel = 0
+barBack.BackgroundTransparency = 1
+
+local barFill = Instance.new("Frame", barBack)
+barFill.Size = UDim2.new(1, 0, 1, 0)
+barFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+barFill.BorderSizePixel = 0
+barFill.BackgroundTransparency = 1
+
+-- Sprint Button (Mobile Friendly)
+local btn = Instance.new("TextButton", sg)
+btn.Size = UDim2.new(0, 80, 0, 80)
+btn.Position = UDim2.new(0.85, -40, 0.7, -40)
+btn.Text = "RUN"
+btn.Shape = Enum.FrameShape.Circle -- If supported, otherwise standard
+btn.BackgroundColor3 = Color3.new(0,0,0)
+btn.BackgroundTransparency = 0.5
+btn.TextColor3 = Color3.new(1,1,1)
+
+-- [[ CORE LOGIC ]] --
+local stamina = STAMINA_MAX
+local isSprinting = false
+
+btn.MouseButton1Click:Connect(function()
+    if stamina > 10 then
+        isSprinting = not isSprinting
+    end
+end)
+
+RunService.RenderStepped:Connect(function(dt)
+    local isMoving = hum.MoveDirection.Magnitude > 0
+    
+    -- 1. STAMINA SYSTEM (DOORS STYLE)
+    if isSprinting and isMoving then
+        stamina = math.max(0, stamina - DRAIN_SPEED)
+        barBack.BackgroundTransparency = 0.5
+        barFill.BackgroundTransparency = 0
+        hum.WalkSpeed = SPRINT_SPEED
+        TweenService:Create(cam, TweenInfo.new(0.3), {FieldOfView = 85}):Play()
+        
+        if stamina <= 0 then 
+            isSprinting = false 
+        end
+    else
+        isSprinting = false
+        stamina = math.min(STAMINA_MAX, stamina + REGEN_SPEED)
+        hum.WalkSpeed = WALK_SPEED
+        TweenService:Create(cam, TweenInfo.new(0.5), {FieldOfView = 70}):Play()
+        
+        -- Hide bar when full
+        if stamina >= STAMINA_MAX then
+            barBack.BackgroundTransparency = 1
+            barFill.BackgroundTransparency = 1
+        end
+    end
+    
+    barFill.Size = UDim2.new(stamina/STAMINA_MAX, 0, 1, 0)
+
+    -- 2. IMPROVED BODYCAM (WEIGHTED TILT)
+    if isMoving then
+        local cycle = isSprinting and 14 or 10
+        bobbing = bobbing + dt * cycle
+        velocity = math.lerp(velocity, isSprinting and 0.15 or 0.05, 0.1)
+    else
+        bobbing = math.lerp(bobbing, 0, 0.1)
+        velocity = math.lerp(velocity, 0, 0.1)
+    end
+    
+    -- Tilt camera into movement (Realistic Weight)
+    local lookDir = cam.CFrame:VectorToObjectSpace(hum.MoveDirection)
+    tilt = math.lerp(tilt, -lookDir.X * 0.08, 0.1)
+    
+    local xShake = math.cos(bobbing) * velocity
+    local yShake = math.abs(math.sin(bobbing)) * velocity
+    
+    cam.CFrame = cam.CFrame 
+        * CFrame.new(xShake, yShake, 0) 
+        * CFrame.Angles(0, 0, tilt + (xShake * 0.1))
+end)
+
+print("Doors Realism Loaded Successfully.")
