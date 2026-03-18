@@ -1,110 +1,2048 @@
--- [[ DOORS-STYLE IMPROVED SYSTEM ]] --
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local player = Players.LocalPlayer
-
--- SETTINGS
-local STAMINA_MAX = 100
-local DRAIN_SPEED = 0.4 
-local REGEN_SPEED = 0.5
-local SPRINT_SPEED = 24
-local WALK_SPEED = 16
-
-local function InitiateScript(character)
-    local hum = character:WaitForChild("Humanoid")
-    local cam = workspace.CurrentCamera
-    local root = character:WaitForChild("HumanoidRootPart")
+--[[
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║           ADVANCED ROBLOX LUAU SCRIPTING FRAMEWORK TUTORIAL                  ║
+    ║            Visual Systems | ESP | Movement | Network | ML                    ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
     
-    local stamina = STAMINA_MAX
-    local isSprinting = false
-    local bobbing = 0
-    local tilt = 0
-    local velocity = 0
+    DISCLAIMER: This tutorial is for educational purposes only.
+    Some techniques shown are used in game exploitation - use responsibly
+    and only in games where you have permission or for anti-cheat development.
+]]
 
-    -- GUI Setup (Unique to each spawn)
-    local sg = Instance.new("ScreenGui", player.PlayerGui)
-    sg.Name = "DoorsSprintGui"
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 1: CORE FOUNDATION (Maid & Signal)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+--[[
+    MAID PATTERN: Automatic cleanup system
+    Prevents memory leaks by tracking connections and instances
+]]
+
+local Maid = {}
+Maid.__index = Maid
+
+function Maid.new()
+    return setmetatable({
+        _tasks = {},
+        _isCleaning = false
+    }, Maid)
+end
+
+function Maid:GiveTask(task)
+    if self._isCleaning then return end
     
-    local barBack = Instance.new("Frame", sg)
-    barBack.Size = UDim2.new(0, 150, 0, 4)
-    barBack.Position = UDim2.new(0.5, -75, 0.9, 0)
-    barBack.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    barBack.BackgroundTransparency = 1
+    local taskType = typeof(task)
+    local cleanupFn
     
-    local barFill = Instance.new("Frame", barBack)
-    barFill.Size = UDim2.new(1, 0, 1, 0)
-    barFill.BackgroundColor3 = Color3.new(1, 1, 1)
-    barFill.BackgroundTransparency = 1
+    if taskType == "RBXScriptConnection" then
+        cleanupFn = function() task:Disconnect() end
+    elseif taskType == "Instance" then
+        cleanupFn = function() task:Destroy() end
+    elseif taskType == "function" then
+        cleanupFn = task
+    elseif taskType == "table" and task.Destroy then
+        cleanupFn = function() task:Destroy() end
+    else
+        error("Invalid task type: " .. taskType)
+    end
+    
+    table.insert(self._tasks, cleanupFn)
+    return #self._tasks
+end
 
-    local btn = Instance.new("TextButton", sg)
-    btn.Size = UDim2.new(0, 80, 0, 80)
-    btn.Position = UDim2.new(0.85, -40, 0.7, -40)
-    btn.Text = "RUN"
-    btn.BackgroundColor3 = Color3.new(0,0,0)
-    btn.BackgroundTransparency = 0.5
-    btn.TextColor3 = Color3.new(1,1,1)
+function Maid:Clean()
+    self._isCleaning = true
+    for _, task in ipairs(self._tasks) do
+        task()
+    end
+    table._tasks = {}
+    self._isCleaning = false
+end
 
-    -- SPRINT TOGGLE
-    btn.MouseButton1Click:Connect(function()
-        if stamina > 10 then
-            isSprinting = not isSprinting
-        end
-    end)
+function Maid:Destroy()
+    self:Clean()
+    setmetatable(self, nil)
+end
 
-    -- MAIN LOOP
-    local connection
-    connection = RunService.RenderStepped:Connect(function(dt)
-        if not character.Parent then connection:Disconnect() sg:Destroy() return end
-        
-        local isMoving = hum.MoveDirection.Magnitude > 0
-        
-        -- Stamina & FOV
-        if isSprinting and isMoving then
-            stamina = math.max(0, stamina - DRAIN_SPEED)
-            hum.WalkSpeed = SPRINT_SPEED
-            barBack.BackgroundTransparency = 0.5
-            barFill.BackgroundTransparency = 0
-            TweenService:Create(cam, TweenInfo.new(0.3), {FieldOfView = 85}):Play()
-            if stamina <= 0 then isSprinting = false end
-        else
-            isSprinting = false
-            stamina = math.min(STAMINA_MAX, stamina + REGEN_SPEED)
-            hum.WalkSpeed = WALK_SPEED
-            TweenService:Create(cam, TweenInfo.new(0.5), {FieldOfView = 70}):Play()
-            if stamina >= STAMINA_MAX then
-                barBack.BackgroundTransparency = 1
-                barFill.BackgroundTransparency = 1
+--[[
+    SIGNAL SYSTEM: Custom event system with better control
+    Alternative to BindableEvents with type safety
+]]
+
+local Signal = {}
+Signal.__index = Signal
+
+function Signal.new()
+    return setmetatable({
+        _connections = {},
+        _yieldedThreads = {}
+    }, Signal)
+end
+
+function Signal:Connect(callback)
+    local connection = {
+        Callback = callback,
+        Connected = true,
+        _signal = self
+    }
+    
+    table.insert(self._connections, connection)
+    
+    return {
+        Disconnect = function()
+            connection.Connected = false
+            for i, conn in ipairs(self._connections) do
+                if conn == connection then
+                    table.remove(self._connections, i)
+                    break
+                end
             end
         end
-        
-        barFill.Size = UDim2.new(stamina/STAMINA_MAX, 0, 1, 0)
+    }
+end
 
-        -- HEAVY BODYCAM IMPROVEMENT
-        if isMoving then
-            local cycle = isSprinting and 14 or 10
-            bobbing = bobbing + dt * cycle
-            velocity = math.lerp(velocity, isSprinting and 0.25 or 0.08, 0.1) -- Increased for "Weight"
-        else
-            bobbing = math.lerp(bobbing, 0, 0.1)
-            velocity = math.lerp(velocity, 0, 0.1)
+function Signal:Fire(...)
+    local args = {...}
+    for _, connection in ipairs(self._connections) do
+        if connection.Connected then
+            task.spawn(function()
+                connection.Callback(unpack(args))
+            end)
         end
-        
-        -- Lean into movement (Realistic Tilt)
-        local lookDir = cam.CFrame:VectorToObjectSpace(hum.MoveDirection)
-        tilt = math.lerp(tilt, -lookDir.X * 0.12, 0.1) -- Stronger tilt
-        
-        local xShake = math.cos(bobbing) * velocity
-        local yShake = math.abs(math.sin(bobbing)) * velocity
-        
-        cam.CFrame = cam.CFrame 
-            * CFrame.new(xShake, yShake, 0) 
-            * CFrame.Angles(0, 0, tilt + (xShake * 0.15))
+    end
+    
+    -- Resume yielded threads
+    for thread, _ in pairs(self._yieldedThreads) do
+        task.spawn(thread, ...)
+    end
+    self._yieldedThreads = {}
+end
+
+function Signal:Wait()
+    local thread = coroutine.running()
+    self._yieldedThreads[thread] = true
+    return coroutine.yield()
+end
+
+function Signal:Destroy()
+    for _, connection in ipairs(self._connections) do
+        connection.Connected = false
+    end
+    self._connections = {}
+    self._yieldedThreads = {}
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 2: UI MANAGER & INITIALIZATION
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local UIManager = {}
+UIManager.__index = UIManager
+
+function UIManager.new()
+    local self = setmetatable({}, UIManager)
+    
+    self.Maid = Maid.new()
+    self.ScreenGui = nil
+    self.Modules = {}
+    self.Theme = {
+        Primary = Color3.fromRGB(30, 30, 35),
+        Secondary = Color3.fromRGB(45, 45, 55),
+        Accent = Color3.fromRGB(88, 101, 242),
+        Text = Color3.fromRGB(255, 255, 255),
+        Success = Color3.fromRGB(46, 204, 113),
+        Warning = Color3.fromRGB(241, 196, 15),
+        Error = Color3.fromRGB(231, 76, 60)
+    }
+    
+    self:Init()
+    return self
+end
+
+function UIManager:Init()
+    -- Create main ScreenGui with anti-detection measures
+    self.ScreenGui = Instance.new("ScreenGui")
+    self.ScreenGui.Name = HttpService:GenerateGUID(false)
+    self.ScreenGui.ResetOnSpawn = false
+    self.ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    self.ScreenGui.DisplayOrder = 999999
+    
+    -- Parent to CoreGui for persistence (requires executor)
+    pcall(function()
+        self.ScreenGui.Parent = game:GetService("CoreGui")
+    end)
+    
+    if not self.ScreenGui.Parent then
+        self.ScreenGui.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+    end
+    
+    self.Maid:GiveTask(self.ScreenGui)
+    
+    -- Create main container
+    self.MainFrame = self:CreateElement("Frame", {
+        Name = "MainContainer",
+        Size = UDim2.new(0, 600, 0, 400),
+        Position = UDim2.new(0.5, -300, 0.5, -200),
+        BackgroundColor3 = self.Theme.Primary,
+        BorderSizePixel = 0,
+        Parent = self.ScreenGui
+    })
+    
+    -- Add rounded corners
+    self:CreateElement("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = self.MainFrame
+    })
+    
+    -- Add shadow
+    self:CreateShadow(self.MainFrame)
+    
+    -- Make draggable
+    self:MakeDraggable(self.MainFrame)
+    
+    -- Initialize tab system
+    self:InitTabSystem()
+end
+
+function UIManager:CreateElement(className, properties)
+    local element = Instance.new(className)
+    for prop, value in pairs(properties) do
+        element[prop] = value
+    end
+    return element
+end
+
+function UIManager:CreateShadow(parent)
+    local shadow = self:CreateElement("ImageLabel", {
+        Name = "Shadow",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0.5, 0, 0.5, 4),
+        Size = UDim2.new(1, 24, 1, 24),
+        BackgroundTransparency = 1,
+        Image = "rbxassetid://1316045217", -- Shadow asset
+        ImageColor3 = Color3.new(0, 0, 0),
+        ImageTransparency = 0.6,
+        ScaleType = Enum.ScaleType.Slice,
+        SliceCenter = Rect.new(10, 10, 118, 118),
+        ZIndex = -1,
+        Parent = parent
+    })
+    return shadow
+end
+
+function UIManager:MakeDraggable(frame)
+    local dragging = false
+    local dragInput, dragStart, startPos
+    
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, 
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale, 
+                startPos.Y.Offset + delta.Y
+            )
+        end
     end)
 end
 
--- Re-run the script every time you spawn
-player.CharacterAdded:Connect(InitiateScript)
-if player.Character then InitiateScript(player.Character) end
+function UIManager:InitTabSystem()
+    self.TabContainer = self:CreateElement("Frame", {
+        Name = "TabBar",
+        Size = UDim2.new(0, 120, 1, -40),
+        Position = UDim2.new(0, 0, 0, 40),
+        BackgroundColor3 = self.Theme.Secondary,
+        BorderSizePixel = 0,
+        Parent = self.MainFrame
+    })
+    
+    self:CreateElement("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = self.TabContainer
+    })
+    
+    self.ContentContainer = self:CreateElement("Frame", {
+        Name = "Content",
+        Size = UDim2.new(1, -130, 1, -50),
+        Position = UDim2.new(0, 125, 0, 45),
+        BackgroundTransparency = 1,
+        Parent = self.MainFrame
+    })
+    
+    self.Tabs = {}
+    self.ActiveTab = nil
+end
 
-print("Source Improved: Character Tracking & Heavy Bodycam Active.")
+function UIManager:AddTab(name, icon)
+    local tabButton = self:CreateElement("TextButton", {
+        Name = name .. "Tab",
+        Size = UDim2.new(1, -10, 0, 35),
+        Position = UDim2.new(0, 5, 0, 10 + (#self.Tabs * 40)),
+        BackgroundColor3 = self.Theme.Primary,
+        Text = name,
+        TextColor3 = self.Theme.Text,
+        Font = Enum.Font.GothamSemibold,
+        TextSize = 14,
+        Parent = self.TabContainer
+    })
+    
+    self:CreateElement("UICorner", {
+        CornerRadius = UDim.new(0, 6),
+        Parent = tabButton
+    })
+    
+    local contentFrame = self:CreateElement("ScrollingFrame", {
+        Name = name .. "Content",
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        ScrollBarThickness = 4,
+        ScrollBarImageColor3 = self.Theme.Accent,
+        Visible = false,
+        Parent = self.ContentContainer
+    })
+    
+    self:CreateElement("UIListLayout", {
+        Padding = UDim.new(0, 10),
+        Parent = contentFrame
+    })
+    
+    local tab = {
+        Button = tabButton,
+        Content = contentFrame,
+        Name = name
+    }
+    
+    tabButton.MouseButton1Click:Connect(function()
+        self:SwitchTab(tab)
+    end)
+    
+    table.insert(self.Tabs, tab)
+    
+    if #self.Tabs == 1 then
+        self:SwitchTab(tab)
+    end
+    
+    return contentFrame
+end
+
+function UIManager:SwitchTab(tab)
+    if self.ActiveTab == tab then return end
+    
+    if self.ActiveTab then
+        self.ActiveTab.Content.Visible = false
+        self.ActiveTab.Button.BackgroundColor3 = self.Theme.Primary
+    end
+    
+    self.ActiveTab = tab
+    tab.Content.Visible = true
+    tab.Button.BackgroundColor3 = self.Theme.Accent
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 3: VISUAL SYSTEMS & INSTALLATION
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local VisualSystem = {}
+VisualSystem.__index = VisualSystem
+
+function VisualSystem.new(uiManager)
+    local self = setmetatable({}, VisualSystem)
+    self.UI = uiManager
+    self.Maid = Maid.new()
+    self.Chams = {}
+    self.Highlights = {}
+    self.Tracers = {}
+    self.Skeletons = {}
+    
+    return self
+end
+
+--[[
+    CHAMS: Wallhack visualization
+    Shows players through walls using Highlight instances
+]]
+
+function VisualSystem:CreateChams(player, settings)
+    settings = settings or {}
+    local color = settings.Color or Color3.fromRGB(255, 0, 0)
+    local transparency = settings.Transparency or 0.5
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = HttpService:GenerateGUID(false)
+    highlight.FillColor = color
+    highlight.OutlineColor = Color3.new(1, 1, 1)
+    highlight.FillTransparency = transparency
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    
+    -- Parent to character when it exists
+    local function setupCharacter(char)
+        if char then
+            highlight.Parent = char
+        end
+    end
+    
+    if player.Character then
+        setupCharacter(player.Character)
+    end
+    
+    self.Maid:GiveTask(player.CharacterAdded:Connect(setupCharacter))
+    self.Maid:GiveTask(highlight)
+    
+    self.Chams[player] = {
+        Highlight = highlight,
+        Settings = settings
+    }
+    
+    return highlight
+end
+
+function VisualSystem:RemoveChams(player)
+    if self.Chams[player] then
+        self.Chams[player].Highlight:Destroy()
+        self.Chams[player] = nil
+    end
+end
+
+--[[
+    TRACERS: Draw lines to targets
+    Uses Drawing API or Beam instances
+]]
+
+function VisualSystem:CreateTracer(target, settings)
+    settings = settings or {}
+    
+    -- Using Drawing API (more performant for 2D)
+    local line = Drawing.new("Line")
+    line.Visible = false
+    line.Thickness = settings.Thickness or 1
+    line.Color = settings.Color or Color3.fromRGB(255, 255, 255)
+    line.Transparency = settings.Transparency or 1
+    
+    local tracer = {
+        Line = line,
+        Target = target,
+        Settings = settings,
+        Active = true
+    }
+    
+    table.insert(self.Tracers, tracer)
+    return tracer
+end
+
+function VisualSystem:UpdateTracers()
+    local camera = workspace.CurrentCamera
+    local viewportSize = camera.ViewportSize
+    local centerScreen = Vector2.new(viewportSize.X / 2, viewportSize.Y)
+    
+    for _, tracer in ipairs(self.Tracers) do
+        if not tracer.Active then
+            tracer.Line.Visible = false
+            continue
+        end
+        
+        local targetPos = tracer.Target
+        if typeof(targetPos) == "Instance" then
+            if targetPos:IsA("Model") then
+                targetPos = targetPos:GetPivot().Position
+            elseif targetPos:IsA("BasePart") then
+                targetPos = targetPos.Position
+            end
+        end
+        
+        local screenPos, onScreen = camera:WorldToViewportPoint(targetPos)
+        
+        if onScreen and screenPos.Z > 0 then
+            tracer.Line.From = centerScreen
+            tracer.Line.To = Vector2.new(screenPos.X, screenPos.Y)
+            tracer.Line.Visible = true
+        else
+            tracer.Line.Visible = false
+        end
+    end
+end
+
+--[[
+    SKELETON ESP: Draw bones on character rig
+]]
+
+function VisualSystem:CreateSkeleton(player, settings)
+    settings = settings or {}
+    local lines = {}
+    local bones = {
+        {"Head", "UpperTorso"},
+        {"UpperTorso", "LowerTorso"},
+        {"UpperTorso", "LeftUpperArm"},
+        {"LeftUpperArm", "LeftLowerArm"},
+        {"LeftLowerArm", "LeftHand"},
+        {"UpperTorso", "RightUpperArm"},
+        {"RightUpperArm", "RightLowerArm"},
+        {"RightLowerArm", "RightHand"},
+        {"LowerTorso", "LeftUpperLeg"},
+        {"LeftUpperLeg", "LeftLowerLeg"},
+        {"LeftLowerLeg", "LeftFoot"},
+        {"LowerTorso", "RightUpperLeg"},
+        {"RightUpperLeg", "RightLowerLeg"},
+        {"RightLowerLeg", "RightFoot"}
+    }
+    
+    for _, bone in ipairs(bones) do
+        local line = Drawing.new("Line")
+        line.Thickness = settings.Thickness or 1
+        line.Color = settings.Color or Color3.fromRGB(255, 255, 255)
+        line.Transparency = 1
+        line.Visible = false
+        table.insert(lines, {Line = line, Parts = bone})
+    end
+    
+    local skeleton = {
+        Lines = lines,
+        Player = player,
+        Settings = settings,
+        Active = true
+    }
+    
+    self.Skeletons[player] = skeleton
+    return skeleton
+end
+
+function VisualSystem:UpdateSkeletons()
+    local camera = workspace.CurrentCamera
+    
+    for player, skeleton in pairs(self.Skeletons) do
+        if not skeleton.Active or not player.Character then
+            for _, data in ipairs(skeleton.Lines) do
+                data.Line.Visible = false
+            end
+            continue
+        end
+        
+        for _, data in ipairs(skeleton.Lines) do
+            local part1 = player.Character:FindFirstChild(data.Parts[1])
+            local part2 = player.Character:FindFirstChild(data.Parts[2])
+            
+            if part1 and part2 then
+                local pos1, vis1 = camera:WorldToViewportPoint(part1.Position)
+                local pos2, vis2 = camera:WorldToViewportPoint(part2.Position)
+                
+                if vis1 and vis2 and pos1.Z > 0 and pos2.Z > 0 then
+                    data.Line.From = Vector2.new(pos1.X, pos1.Y)
+                    data.Line.To = Vector2.new(pos2.X, pos2.Y)
+                    data.Line.Visible = true
+                else
+                    data.Line.Visible = false
+                end
+            else
+                data.Line.Visible = false
+            end
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 4: MOVEMENT SYSTEMS
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local MovementSystem = {}
+MovementSystem.__index = MovementSystem
+
+function MovementSystem.new()
+    local self = setmetatable({}, MovementSystem)
+    self.Maid = Maid.new()
+    self.Connections = {}
+    self.Enabled = {
+        Speed = false,
+        Fly = false,
+        Noclip = false,
+        InfiniteJump = false,
+        AutoJump = false
+    }
+    self.Config = {
+        Speed = 50,
+        FlySpeed = 100,
+        JumpPower = 50
+    }
+    
+    self:Init()
+    return self
+end
+
+function MovementSystem:Init()
+    local player = game:GetService("Players").LocalPlayer
+    
+    -- Speed modification via heartbeat
+    self.Maid:GiveTask(game:GetService("RunService").Heartbeat:Connect(function()
+        if not self.Enabled.Speed then return end
+        
+        local character = player.Character
+        if not character then return end
+        
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+        
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if not rootPart then return end
+        
+        -- Calculate movement direction
+        local moveDirection = Vector3.new()
+        local camera = workspace.CurrentCamera
+        
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.W) then
+            moveDirection = moveDirection + camera.CFrame.LookVector
+        end
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.S) then
+            moveDirection = moveDirection - camera.CFrame.LookVector
+        end
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.A) then
+            moveDirection = moveDirection - camera.CFrame.RightVector
+        end
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.D) then
+            moveDirection = moveDirection + camera.CFrame.RightVector
+        end
+        
+        -- Normalize and apply
+        if moveDirection.Magnitude > 0 then
+            moveDirection = Vector3.new(moveDirection.X, 0, moveDirection.Z).Unit
+            rootPart.Velocity = Vector3.new(
+                moveDirection.X * self.Config.Speed,
+                rootPart.Velocity.Y,
+                moveDirection.Z * self.Config.Speed
+            )
+        end
+    end))
+    
+    -- Fly system
+    self:InitFly()
+    
+    -- Noclip system
+    self:InitNoclip()
+    
+    -- Infinite jump
+    self.Maid:GiveTask(game:GetService("UserInputService").JumpRequest:Connect(function()
+        if self.Enabled.InfiniteJump then
+            local character = player.Character
+            if character then
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end
+        end
+    end))
+end
+
+function MovementSystem:InitFly()
+    local player = game:GetService("Players").LocalPlayer
+    local flyBodyGyro, flyBodyVelocity
+    
+    self.Maid:GiveTask(game:GetService("RunService").Heartbeat:Connect(function()
+        if not self.Enabled.Fly then
+            if flyBodyGyro then flyBodyGyro:Destroy() flyBodyGyro = nil end
+            if flyBodyVelocity then flyBodyVelocity:Destroy() flyBodyVelocity = nil end
+            return
+        end
+        
+        local character = player.Character
+        if not character then return end
+        
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if not rootPart then return end
+        
+        -- Create physics controllers
+        if not flyBodyGyro then
+            flyBodyGyro = Instance.new("BodyGyro")
+            flyBodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            flyBodyGyro.P = 9e9
+            flyBodyGyro.Parent = rootPart
+        end
+        
+        if not flyBodyVelocity then
+            flyBodyVelocity = Instance.new("BodyVelocity")
+            flyBodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            flyBodyVelocity.Parent = rootPart
+        end
+        
+        -- Calculate fly direction
+        local camera = workspace.CurrentCamera
+        local direction = Vector3.new()
+        
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.W) then
+            direction = direction + camera.CFrame.LookVector
+        end
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.S) then
+            direction = direction - camera.CFrame.LookVector
+        end
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.A) then
+            direction = direction - camera.CFrame.RightVector
+        end
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.D) then
+            direction = direction + camera.CFrame.RightVector
+        end
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.Space) then
+            direction = direction + Vector3.new(0, 1, 0)
+        end
+        if game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.LeftShift) then
+            direction = direction - Vector3.new(0, 1, 0)
+        end
+        
+        if direction.Magnitude > 0 then
+            direction = direction.Unit * self.Config.FlySpeed
+        end
+        
+        flyBodyVelocity.Velocity = direction
+        flyBodyGyro.CFrame = camera.CFrame
+    end))
+end
+
+function MovementSystem:InitNoclip()
+    self.Maid:GiveTask(game:GetService("RunService").Stepped:Connect(function()
+        if not self.Enabled.Noclip then return end
+        
+        local character = game:GetService("Players").LocalPlayer.Character
+        if not character then return end
+        
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end))
+end
+
+function MovementSystem:Toggle(feature)
+    self.Enabled[feature] = not self.Enabled[feature]
+    return self.Enabled[feature]
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 5: ESP SYSTEM (Complete Implementation)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local ESPSystem = {}
+ESPSystem.__index = ESPSystem
+
+function ESPSystem.new()
+    local self = setmetatable({}, ESPSystem)
+    self.Maid = Maid.new()
+    self.ESPObjects = {}
+    self.Settings = {
+        Enabled = true,
+        TeamCheck = true,
+        MaxDistance = 1000,
+        ShowName = true,
+        ShowDistance = true,
+        ShowHealth = true,
+        ShowBox = true,
+        ShowTracer = true,
+        ShowSkeleton = false,
+        TextSize = 13,
+        TextFont = Drawing.Fonts.UI,
+        BoxColor = Color3.fromRGB(255, 0, 0),
+        VisibleColor = Color3.fromRGB(0, 255, 0),
+        HiddenColor = Color3.fromRGB(255, 0, 0)
+    }
+    
+    self:Init()
+    return self
+end
+
+function ESPSystem:Init()
+    -- Update loop
+    self.Maid:GiveTask(game:GetService("RunService").RenderStepped:Connect(function()
+        self:Update()
+    end))
+    
+    -- Handle new players
+    local players = game:GetService("Players")
+    
+    for _, player in ipairs(players:GetPlayers()) do
+        if player ~= players.LocalPlayer then
+            self:AddPlayer(player)
+        end
+    end
+    
+    self.Maid:GiveTask(players.PlayerAdded:Connect(function(player)
+        self:AddPlayer(player)
+    end))
+    
+    self.Maid:GiveTask(players.PlayerRemoving:Connect(function(player)
+        self:RemovePlayer(player)
+    end))
+end
+
+function ESPSystem:AddPlayer(player)
+    if self.ESPObjects[player] then return end
+    
+    local esp = {
+        Player = player,
+        Drawings = {},
+        Connections = {}
+    }
+    
+    -- Create drawings
+    if self.Settings.ShowBox then
+        esp.Drawings.Box = Drawing.new("Square")
+        esp.Drawings.Box.Thickness = 1
+        esp.Drawings.Box.Filled = false
+        esp.Drawings.Box.Visible = false
+    end
+    
+    if self.Settings.ShowName then
+        esp.Drawings.Name = Drawing.new("Text")
+        esp.Drawings.Name.Center = true
+        esp.Drawings.Name.Outline = true
+        esp.Drawings.Name.Size = self.Settings.TextSize
+        esp.Drawings.Name.Font = self.Settings.TextFont
+        esp.Drawings.Name.Visible = false
+    end
+    
+    if self.Settings.ShowDistance then
+        esp.Drawings.Distance = Drawing.new("Text")
+        esp.Drawings.Distance.Center = true
+        esp.Drawings.Distance.Outline = true
+        esp.Drawings.Distance.Size = self.Settings.TextSize - 2
+        esp.Drawings.Distance.Font = self.Settings.TextFont
+        esp.Drawings.Distance.Visible = false
+    end
+    
+    if self.Settings.ShowHealth then
+        esp.Drawings.HealthBar = Drawing.new("Square")
+        esp.Drawings.HealthBar.Thickness = 1
+        esp.Drawings.HealthBar.Filled = true
+        esp.Drawings.HealthBar.Visible = false
+        
+        esp.Drawings.HealthBarBackground = Drawing.new("Square")
+        esp.Drawings.HealthBarBackground.Thickness = 1
+        esp.Drawings.HealthBarBackground.Filled = true
+        esp.Drawings.HealthBarBackground.Color = Color3.fromRGB(0, 0, 0)
+        esp.Drawings.HealthBarBackground.Visible = false
+    end
+    
+    if self.Settings.ShowTracer then
+        esp.Drawings.Tracer = Drawing.new("Line")
+        esp.Drawings.Tracer.Thickness = 1
+        esp.Drawings.Tracer.Visible = false
+    end
+    
+    self.ESPObjects[player] = esp
+end
+
+function ESPSystem:RemovePlayer(player)
+    local esp = self.ESPObjects[player]
+    if not esp then return end
+    
+    for _, drawing in pairs(esp.Drawings) do
+        drawing:Remove()
+    end
+    
+    for _, conn in ipairs(esp.Connections) do
+        conn:Disconnect()
+    end
+    
+    self.ESPObjects[player] = nil
+end
+
+function ESPSystem:Update()
+    if not self.Settings.Enabled then
+        for _, esp in pairs(self.ESPObjects) do
+            for _, drawing in pairs(esp.Drawings) do
+                drawing.Visible = false
+            end
+        end
+        return
+    end
+    
+    local localPlayer = game:GetService("Players").LocalPlayer
+    local camera = workspace.CurrentCamera
+    local viewportSize = camera.ViewportSize
+    
+    for player, esp in pairs(self.ESPObjects) do
+        local character = player.Character
+        if not character then
+            for _, drawing in pairs(esp.Drawings) do
+                drawing.Visible = false
+            end
+            continue
+        end
+        
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        local head = character:FindFirstChild("Head")
+        
+        if not humanoid or not rootPart or not head then
+            for _, drawing in pairs(esp.Drawings) do
+                drawing.Visible = false
+            end
+            continue
+        end
+        
+        -- Team check
+        if self.Settings.TeamCheck and player.Team == localPlayer.Team then
+            for _, drawing in pairs(esp.Drawings) do
+                drawing.Visible = false
+            end
+            continue
+        end
+        
+        -- Distance check
+        local distance = (rootPart.Position - camera.CFrame.Position).Magnitude
+        if distance > self.Settings.MaxDistance then
+            for _, drawing in pairs(esp.Drawings) do
+                drawing.Visible = false
+            end
+            continue
+        end
+        
+        -- Calculate box bounds
+        local headPos, headOnScreen = camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+        local rootPos, rootOnScreen = camera:WorldToViewportPoint(rootPart.Position - Vector3.new(0, 3, 0))
+        
+        if not headOnScreen or not rootOnScreen then
+            for _, drawing in pairs(esp.Drawings) do
+                drawing.Visible = false
+            end
+            continue
+        end
+        
+        local boxHeight = math.abs(headPos.Y - rootPos.Y)
+        local boxWidth = boxHeight * 0.6
+        
+        local boxPosition = Vector2.new(
+            math.floor(rootPos.X - boxWidth / 2),
+            math.floor(headPos.Y)
+        )
+        
+        -- Update visibility check
+        local isVisible = self:IsVisible(head)
+        local color = isVisible and self.Settings.VisibleColor or self.Settings.HiddenColor
+        
+        -- Update box
+        if esp.Drawings.Box then
+            esp.Drawings.Box.Size = Vector2.new(boxWidth, boxHeight)
+            esp.Drawings.Box.Position = boxPosition
+            esp.Drawings.Box.Color = color
+            esp.Drawings.Box.Visible = true
+        end
+        
+        -- Update name
+        if esp.Drawings.Name then
+            esp.Drawings.Name.Text = player.Name
+            esp.Drawings.Name.Position = Vector2.new(boxPosition.X + boxWidth / 2, boxPosition.Y - 15)
+            esp.Drawings.Name.Color = color
+            esp.Drawings.Name.Visible = true
+        end
+        
+        -- Update distance
+        if esp.Drawings.Distance then
+            esp.Drawings.Distance.Text = math.floor(distance) .. "m"
+            esp.Drawings.Distance.Position = Vector2.new(boxPosition.X + boxWidth / 2, boxPosition.Y + boxHeight + 2)
+            esp.Drawings.Distance.Color = color
+            esp.Drawings.Distance.Visible = true
+        end
+        
+        -- Update health bar
+        if esp.Drawings.HealthBar and esp.Drawings.HealthBarBackground then
+            local healthPercent = humanoid.Health / humanoid.MaxHealth
+            local barHeight = boxHeight * healthPercent
+            
+            esp.Drawings.HealthBarBackground.Size = Vector2.new(4, boxHeight)
+            esp.Drawings.HealthBarBackground.Position = Vector2.new(boxPosition.X - 8, boxPosition.Y)
+            esp.Drawings.HealthBarBackground.Visible = true
+            
+            esp.Drawings.HealthBar.Size = Vector2.new(2, barHeight)
+            esp.Drawings.HealthBar.Position = Vector2.new(boxPosition.X - 7, boxPosition.Y + boxHeight - barHeight)
+            esp.Drawings.HealthBar.Color = Color3.fromRGB(255 * (1 - healthPercent), 255 * healthPercent, 0)
+            esp.Drawings.HealthBar.Visible = true
+        end
+        
+        -- Update tracer
+        if esp.Drawings.Tracer then
+            local tracerOrigin = Vector2.new(viewportSize.X / 2, viewportSize.Y)
+            esp.Drawings.Tracer.From = tracerOrigin
+            esp.Drawings.Tracer.To = Vector2.new(rootPos.X, rootPos.Y)
+            esp.Drawings.Tracer.Color = color
+            esp.Drawings.Tracer.Visible = true
+        end
+    end
+end
+
+function ESPSystem:IsVisible(targetPart)
+    local camera = workspace.CurrentCamera
+    local origin = camera.CFrame.Position
+    local direction = (targetPart.Position - origin).Unit * (targetPart.Position - origin).Magnitude
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.FilterDescendantsInstances = {game:GetService("Players").LocalPlayer.Character}
+    
+    local result = workspace:Raycast(origin, direction, raycastParams)
+    return not result or result.Instance:IsDescendantOf(targetPart.Parent)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 6: CHARACTER SYSTEMS & NETWORK OWNERSHIP
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+--[[
+    NETWORK OWNERSHIP: Critical for manipulating physics
+    Roblox uses network ownership to determine which client/server controls physics
+]]
+
+local NetworkSystem = {}
+NetworkSystem.__index = NetworkSystem
+
+function NetworkSystem.new()
+    local self = setmetatable({}, NetworkSystem)
+    self.Maid = Maid.new()
+    self.OwnedParts = {}
+    return self
+end
+
+--[[
+    SetNetworkOwner: Attempts to claim network ownership of a part
+    This allows client-side physics manipulation
+]]
+
+function NetworkSystem:ClaimOwnership(part)
+    if not part:IsA("BasePart") then return false end
+    
+    -- Method 1: Direct ownership claim (requires exploits)
+    local success = pcall(function()
+        -- This only works with certain executors
+        part:SetNetworkOwner(game:GetService("Players").LocalPlayer)
+    end)
+    
+    if success then
+        self.OwnedParts[part] = true
+        return true
+    end
+    
+    -- Method 2: Physics manipulation through velocity
+    -- Even without ownership, rapid updates can desync
+    return false
+end
+
+--[[
+    Velocity Manipulation: "Netless" method
+    Rapidly setting velocity can override server authority briefly
+]]
+
+function NetworkSystem:VelocityFly(part, speed)
+    if not part then return end
+    
+    local connection
+    connection = game:GetService("RunService").Heartbeat:Connect(function()
+        if not part or not part.Parent then
+            connection:Disconnect()
+            return
+        end
+        
+        -- Rapid velocity updates create "netless" state
+        part.Velocity = Vector3.new(0, 0, 0)
+        part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        
+        -- Apply movement
+        local camera = workspace.CurrentCamera
+        local moveDir = Vector3.new()
+        
+        -- Get input and calculate
+        local UIS = game:GetService("UserInputService")
+        if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camera.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camera.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camera.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camera.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+        
+        if moveDir.Magnitude > 0 then
+            moveDir = moveDir.Unit * speed
+            part.CFrame = part.CFrame + (moveDir * 0.016) -- Delta time approximation
+        end
+    end)
+    
+    self.Maid:GiveTask(connection)
+    return connection
+end
+
+--[[
+    Desync Method: Create position desynchronization
+    Server sees different position than client
+]]
+
+function NetworkSystem:CreateDesync(character)
+    local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+    local realPosition = humanoidRootPart.CFrame
+    
+    -- Store real position
+    self.DesyncData = {
+        RealCFrame = realPosition,
+        FakeCFrame = realPosition,
+        Enabled = true
+    }
+    
+    -- Hook CFrame access
+    local oldIndex
+    oldIndex = hookmetamethod(game, "__index", function(self, key)
+        if self == humanoidRootPart and key == "CFrame" and NetworkSystem.DesyncData.Enabled then
+            return NetworkSystem.DesyncData.FakeCFrame
+        end
+        return oldIndex(self, key)
+    end)
+    
+    -- Update loop
+    self.Maid:GiveTask(game:GetService("RunService").Heartbeat:Connect(function()
+        if not self.DesyncData.Enabled then return end
+        
+        -- Update fake position based on input
+        -- Real position stays safe while fake position goes through walls
+        self.DesyncData.FakeCFrame = self.DesyncData.FakeCFrame
+    end))
+end
+
+--[[
+    Remote Event Spoofing: Manipulate network traffic
+]]
+
+function NetworkSystem:HookRemotes()
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        
+        -- Intercept FireServer calls
+        if method == "FireServer" then
+            local remote = self
+            
+            -- Log remote
+            print("Remote Fired:", remote.Name, unpack(args))
+            
+            -- Modify args if needed
+            -- args[1] = modifiedValue
+            
+            return oldNamecall(self, unpack(args))
+        end
+        
+        return oldNamecall(self, ...)
+    end)
+    
+    return oldNamecall
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 7: BEHAVIOR & UTILITY SYSTEMS
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local UtilitySystem = {}
+UtilitySystem.__index = UtilitySystem
+
+function UtilitySystem.new()
+    local self = setmetatable({}, UtilitySystem)
+    self.Cache = {}
+    return self
+end
+
+--[[
+    Pathfinding: Smart navigation with bypass
+]]
+
+function UtilitySystem:SmartPathfind(targetPosition, options)
+    options = options or {}
+    local pathfindingService = game:GetService("PathfindingService")
+    local player = game:GetService("Players").LocalPlayer
+    
+    local character = player.Character
+    if not character then return nil end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return nil end
+    
+    -- Create path
+    local path = pathfindingService:CreatePath({
+        AgentRadius = options.AgentRadius or 2,
+        AgentHeight = options.AgentHeight or 5,
+        AgentCanJump = options.CanJump ~= false,
+        AgentJumpHeight = options.JumpHeight or 10,
+        AgentMaxSlope = options.MaxSlope or 45,
+        Costs = options.Costs or {}
+    })
+    
+    local success, errorMessage = pcall(function()
+        path:ComputeAsync(character:GetPivot().Position, targetPosition)
+    end)
+    
+    if not success or path.Status == Enum.PathStatus.NoPath then
+        -- Fallback: Direct teleport with collision check
+        return self:DirectMove(targetPosition)
+    end
+    
+    -- Follow path
+    local waypoints = path:GetWaypoints()
+    for _, waypoint in ipairs(waypoints) do
+        if waypoint.Action == Enum.PathWaypointAction.Jump then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+        
+        humanoid:MoveTo(waypoint.Position)
+        local reached = humanoid.MoveToFinished:Wait()
+        
+        if not reached then
+            break
+        end
+    end
+    
+    return true
+end
+
+--[[
+    Aimbot: Target acquisition and smoothing
+]]
+
+function UtilitySystem:Aimbot(settings)
+    settings = settings or {}
+    local camera = workspace.CurrentCamera
+    local players = game:GetService("Players")
+    local localPlayer = players.LocalPlayer
+    
+    local function getClosestPlayer()
+        local closest = nil
+        local shortestDistance = math.huge
+        local mousePos = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+        
+        for _, player in ipairs(players:GetPlayers()) do
+            if player == localPlayer then continue end
+            if settings.TeamCheck and player.Team == localPlayer.Team then continue end
+            
+            local character = player.Character
+            if not character then continue end
+            
+            local head = character:FindFirstChild("Head")
+            if not head then continue end
+            
+            local screenPos, onScreen = camera:WorldToViewportPoint(head.Position)
+            if not onScreen then continue end
+            
+            local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+            if distance < shortestDistance and distance < (settings.FOV or 200) then
+                -- Visibility check
+                if settings.VisibilityCheck and not self:IsVisible(head) then
+                    continue
+                end
+                
+                shortestDistance = distance
+                closest = player
+            end
+        end
+        
+        return closest
+    end
+    
+    local target = getClosestPlayer()
+    if not target then return end
+    
+    local head = target.Character.Head
+    local targetPos = head.Position
+    
+    if settings.Prediction then
+        local velocity = head.AssemblyLinearVelocity
+        local timeToTarget = (targetPos - camera.CFrame.Position).Magnitude / (settings.BulletSpeed or 1000)
+        targetPos = targetPos + (velocity * timeToTarget)
+    end
+    
+    -- Smooth aim
+    local targetCFrame = CFrame.new(camera.CFrame.Position, targetPos)
+    local smoothness = settings.Smoothness or 0.1
+    
+    camera.CFrame = camera.CFrame:Lerp(targetCFrame, smoothness)
+end
+
+--[[
+    Triggerbot: Auto-fire when on target
+]]
+
+function UtilitySystem:Triggerbot(settings)
+    local camera = workspace.CurrentCamera
+    local centerRay = camera:ViewportPointToRay(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.FilterDescendantsInstances = {game:GetService("Players").LocalPlayer.Character}
+    
+    local result = workspace:Raycast(centerRay.Origin, centerRay.Direction * 1000, raycastParams)
+    
+    if result then
+        local hitModel = result.Instance:FindFirstAncestorOfClass("Model")
+        if hitModel then
+            local player = game:GetService("Players"):GetPlayerFromCharacter(hitModel)
+            if player and player ~= game:GetService("Players").LocalPlayer then
+                if not settings.TeamCheck or player.Team ~= game:GetService("Players").LocalPlayer.Team then
+                    -- Fire input
+                    mouse1press()
+                    task.wait(0.01)
+                    mouse1release()
+                end
+            end
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 8: STATE MANAGER & GOVERNOR
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local StateManager = {}
+StateManager.__index = StateManager
+
+function StateManager.new()
+    local self = setmetatable({}, StateManager)
+    self.States = {}
+    self.Transitions = {}
+    self.CurrentState = nil
+    self.OnStateChanged = Signal.new()
+    
+    return self
+end
+
+function StateManager:AddState(name, stateData)
+    self.States[name] = {
+        OnEnter = stateData.OnEnter or function() end,
+        OnExit = stateData.OnExit or function() end,
+        OnUpdate = stateData.OnUpdate or function() end,
+        Transitions = stateData.Transitions or {},
+        Data = stateData.Data or {}
+    }
+end
+
+function StateManager:TransitionTo(newState, ...)
+    if self.CurrentState == newState then return end
+    if not self.States[newState] then error("State does not exist: " .. newState) end
+    
+    -- Exit current
+    if self.CurrentState then
+        self.States[self.CurrentState].OnExit()
+    end
+    
+    -- Enter new
+    local oldState = self.CurrentState
+    self.CurrentState = newState
+    self.States[newState].OnEnter(...)
+    
+    self.OnStateChanged:Fire(oldState, newState)
+end
+
+function StateManager:Update(deltaTime)
+    if not self.CurrentState then return end
+    
+    local state = self.States[self.CurrentState]
+    state.OnUpdate(deltaTime)
+    
+    -- Check transitions
+    for condition, targetState in pairs(state.Transitions) do
+        if condition() then
+            self:TransitionTo(targetState)
+            break
+        end
+    end
+end
+
+--[[
+    GOVERNOR: Performance and safety regulator
+]]
+
+local Governor = {}
+Governor.__index = Governor
+
+function Governor.new()
+    local self = setmetatable({}, Governor)
+    self.Stats = {
+        FPS = 0,
+        Memory = 0,
+        Ping = 0,
+        FrameTime = 0
+    }
+    self.Limits = {
+        MaxFPS = 240,
+        MaxMemoryMB = 512,
+        TargetFrameTime = 1/60
+    }
+    self.Throttling = false
+    self.Maid = Maid.new()
+    
+    self:InitMonitoring()
+    return self
+end
+
+function Governor:InitMonitoring()
+    local lastTime = tick()
+    local frameCount = 0
+    
+    self.Maid:GiveTask(game:GetService("RunService").Heartbeat:Connect(function()
+        local currentTime = tick()
+        frameCount = frameCount + 1
+        
+        if currentTime - lastTime >= 1 then
+            self.Stats.FPS = frameCount
+            self.Stats.FrameTime = (currentTime - lastTime) / frameCount
+            frameCount = 0
+            lastTime = currentTime
+            
+            -- Check memory
+            self.Stats.Memory = collectgarbage("count") / 1024
+            
+            -- Adaptive throttling
+            self:CheckLimits()
+        end
+    end))
+end
+
+function Governor:CheckLimits()
+    local shouldThrottle = false
+    
+    if self.Stats.FPS < 30 then
+        shouldThrottle = true
+    end
+    
+    if self.Stats.Memory > self.Limits.MaxMemoryMB then
+        collectgarbage("collect")
+        shouldThrottle = true
+    end
+    
+    if shouldThrottle ~= self.Throttling then
+        self.Throttling = shouldThrottle
+        self:OnThrottleChanged(shouldThrottle)
+    end
+end
+
+function Governor:OnThrottleChanged(throttling)
+    -- Reduce feature quality when throttling
+    if throttling then
+        print("Governor: Throttling enabled for performance")
+        -- Disable expensive features
+    else
+        print("Governor: Throttling disabled")
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 9: MULTI-STEALTH LAYER
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local StealthSystem = {}
+StealthSystem.__index = StealthSystem
+
+function StealthSystem.new()
+    local self = setmetatable({}, StealthSystem)
+    self.Layers = {
+        NameObfuscation = true,
+        AntiDetection = true,
+        BehaviorHumanization = true,
+        SignatureMasking = true
+    }
+    self.Detected = false
+    self.Maid = Maid.new()
+    
+    self:Init()
+    return self
+end
+
+function StealthSystem:Init()
+    -- Layer 1: Name Obfuscation
+    if self.Layers.NameObfuscation then
+        self:ObfuscateNames()
+    end
+    
+    -- Layer 2: Anti-Detection
+    if self.Layers.AntiDetection then
+        self:InitAntiDetection()
+    end
+    
+    -- Layer 3: Behavior Humanization
+    if self.Layers.BehaviorHumanization then
+        self:InitHumanization()
+    end
+    
+    -- Layer 4: Signature Masking
+    if self.Layers.SignatureMasking then
+        self:MaskSignatures()
+    end
+end
+
+--[[
+    Name Obfuscation: Randomize instance names to avoid detection
+]]
+
+function StealthSystem:ObfuscateNames()
+    local function randomString(length)
+        local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        local str = ""
+        for i = 1, length do
+            str = str .. chars:sub(math.random(1, #chars))
+        end
+        return str
+    end
+    
+    -- Hook instance creation
+    local oldInstanceNew = Instance.new
+    Instance.new = function(className, parent)
+        local instance = oldInstanceNew(className)
+        instance.Name = randomString(16)
+        if parent then
+            instance.Parent = parent
+        end
+        return instance
+    end
+end
+
+--[[
+    Anti-Detection: Hook detection methods
+]]
+
+function StealthSystem:InitAntiDetection()
+    -- Hook getconnections to hide our connections
+    local oldGetConnections = getconnections
+    if oldGetConnections then
+        getconnections = function(signal)
+            local connections = oldGetConnections(signal)
+            local filtered = {}
+            
+            for _, conn in ipairs(connections) do
+                -- Filter out our connections
+                if not conn.Function or not tostring(conn.Function):find("Maid") then
+                    table.insert(filtered, conn)
+                end
+            end
+            
+            return filtered
+        end
+    end
+    
+    -- Hook hookfunction detection
+    local detectedHooks = {}
+    local oldHookFunction = hookfunction
+    hookfunction = function(original, hook)
+        detectedHooks[original] = hook
+        return oldHookFunction(original, hook)
+    end
+    
+    -- Spoof runtime info
+    local oldGetReg = getreg
+    if oldGetReg then
+        getreg = function()
+            local registry = oldGetReg()
+            -- Filter our entries
+            local cleaned = {}
+            for i, v in pairs(registry) do
+                if type(v) ~= "table" or not v._isScript then
+                    cleaned[i] = v
+                end
+            end
+            return cleaned
+        end
+    end
+end
+
+--[[
+    Behavior Humanization: Add randomness and natural patterns
+]]
+
+function StealthSystem:InitHumanization()
+    self.Humanization = {
+        ReactionDelay = {min = 0.05, max = 0.15},
+        AimJitter = 2, -- pixels
+        MovementNoise = 0.1
+    }
+    
+    -- Randomize timing
+    function self:HumanizedDelay()
+        local delay = math.random() * (self.Humanization.ReactionDelay.max - self.Humanization.ReactionDelay.min) 
+                      + self.Humanization.ReactionDelay.min
+        task.wait(delay)
+    end
+    
+    -- Add jitter to precise values
+    function self:AddJitter(value, amount)
+        amount = amount or self.Humanization.AimJitter
+        return value + (math.random() - 0.5) * amount
+    end
+end
+
+--[[
+    Signature Masking: Hide from signature-based detection
+]]
+
+function StealthSystem:MaskSignatures()
+    -- Randomize script patterns
+    local function polymorphicCode(code)
+        local obfuscated = code
+        
+        -- Variable name randomization
+        local varMap = {}
+        obfuscated = obfuscated:gsub("local%s+([%w_]+)", function(var)
+            if not varMap[var] then
+                varMap[var] = "_" .. tostring(math.random(100000, 999999))
+            end
+            return "local " .. varMap[var]
+        end)
+        
+        -- String obfuscation
+        obfuscated = obfuscated:gsub("\"([^\"]+)\"", function(str)
+            local charCodes = {}
+            for i = 1, #str do
+                table.insert(charCodes, string.byte(str, i))
+            end
+            return "string.char(" .. table.concat(charCodes, ",") .. ")"
+        end)
+        
+        return obfuscated
+    end
+    
+    self.PolymorphicCode = polymorphicCode
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 10: MACHINE LEARNING TECHNIQUES
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local MLSystem = {}
+MLSystem.__index = MLSystem
+
+--[[
+    Simple Neural Network for aim prediction
+    Note: Roblox limitations prevent full TensorFlow/PyTorch
+    We implement lightweight algorithms
+]]
+
+function MLSystem.new()
+    local self = setmetatable({}, MLSystem)
+    self.Models = {}
+    self.TrainingData = {}
+    return self
+end
+
+--[[
+    Linear Regression: Predict target position based on velocity
+]]
+
+function MLSystem:LinearRegression()
+    local model = {
+        Weights = {},
+        Bias = 0,
+        LearningRate = 0.01
+    }
+    
+    function model:Train(inputs, targets, epochs)
+        epochs = epochs or 100
+        
+        for epoch = 1, epochs do
+            local totalError = 0
+            
+            for i, input in ipairs(inputs) do
+                local target = targets[i]
+                local prediction = self:Predict(input)
+                local error = target - prediction
+                totalError = totalError + math.abs(error)
+                
+                -- Gradient descent
+                for j, feature in ipairs(input) do
+                    self.Weights[j] = (self.Weights[j] or 0) + self.LearningRate * error * feature
+                end
+                self.Bias = self.Bias + self.LearningRate * error
+            end
+            
+            if epoch % 10 == 0 then
+                print("Epoch", epoch, "Error:", totalError / #inputs)
+            end
+        end
+    end
+    
+    function model:Predict(input)
+        local sum = self.Bias
+        for i, feature in ipairs(input) do
+            sum = sum + (self.Weights[i] or 0) * feature
+        end
+        return sum
+    end
+    
+    return model
+end
+
+--[[
+    K-Means Clustering: Group players by behavior
+    Useful for detecting anomalies
+]]
+
+function MLSystem:KMeans(k)
+    local model = {
+        K = k,
+        Centroids = {},
+        Clusters = {}
+    }
+    
+    function model:Fit(data, maxIterations)
+        maxIterations = maxIterations or 100
+        
+        -- Initialize centroids randomly
+        for i = 1, self.K do
+            self.Centroids[i] = data[math.random(1, #data)]
+        end
+        
+        for iteration = 1, maxIterations do
+            -- Clear clusters
+            for i = 1, self.K do
+                self.Clusters[i] = {}
+            end
+            
+            -- Assign to nearest centroid
+            for _, point in ipairs(data) do
+                local minDist = math.huge
+                local closest = 1
+                
+                for i, centroid in ipairs(self.Centroids) do
+                    local dist = self:Distance(point, centroid)
+                    if dist < minDist then
+                        minDist = dist
+                        closest = i
+                    end
+                end
+                
+                table.insert(self.Clusters[closest], point)
+            end
+            
+            -- Update centroids
+            local changed = false
+            for i = 1, self.K do
+                local newCentroid = self:CalculateCentroid(self.Clusters[i])
+                if newCentroid ~= self.Centroids[i] then
+                    changed = true
+                    self.Centroids[i] = newCentroid
+                end
+            end
+            
+            if not changed then break end
+        end
+    end
+    
+    function model:Distance(a, b)
+        local sum = 0
+        for i = 1, #a do
+            sum = sum + (a[i] - b[i]) ^ 2
+        end
+        return math.sqrt(sum)
+    end
+    
+    function model:CalculateCentroid(cluster)
+        if #cluster == 0 then return {0, 0, 0} end
+        
+        local sum = {}
+        for _, point in ipairs(cluster) do
+            for i, coord in ipairs(point) do
+                sum[i] = (sum[i] or 0) + coord
+            end
+        end
+        
+        local centroid = {}
+        for i, total in ipairs(sum) do
+            centroid[i] = total / #cluster
+        end
+        return centroid
+    end
+    
+    return model
+end
+
+--[[
+    Reinforcement Learning: Q-Learning for decision making
+    Simple implementation for combat decisions
+]]
+
+function MLSystem:QLearning(states, actions, learningRate, discountFactor)
+    local model = {
+        QTable = {},
+        LearningRate = learningRate or 0.1,
+        DiscountFactor = discountFactor or 0.95,
+        ExplorationRate = 1.0,
+        ExplorationDecay = 0.995,
+        MinExploration = 0.01
+    }
+    
+    -- Initialize Q-table
+    for _, state in ipairs(states) do
+        model.QTable[state] = {}
+        for _, action in ipairs(actions) do
+            model.QTable[state][action] = 0
+        end
+    end
+    
+    function model:GetAction(state)
+        -- Epsilon-greedy
+        if math.random() < self.ExplorationRate then
+            return actions[math.random(1, #actions)]
+        end
+        
+        -- Get best action
+        local bestAction = actions[1]
+        local bestValue = -math.huge
+        
+        for action, value in pairs(self.QTable[state]) do
+            if value > bestValue then
+                bestValue = value
+                bestAction = action
+            end
+        end
+        
+        return bestAction
+    end
+    
+    function model:Update(state, action, reward, nextState)
+        local currentQ = self.QTable[state][action]
+        local maxNextQ = -math.huge
+        
+        for _, value in pairs(self.QTable[nextState]) do
+            if value > maxNextQ then
+                maxNextQ = value
+            end
+        end
+        
+        -- Q-learning formula
+        self.QTable[state][action] = currentQ + self.LearningRate * 
+            (reward + self.DiscountFactor * maxNextQ - currentQ)
+        
+        -- Decay exploration
+        self.ExplorationRate = math.max(
+            self.MinExploration,
+            self.ExplorationRate * self.ExplorationDecay
+        )
+    end
+    
+    return model
+end
+
+--[[
+    Neural Network: Simple feedforward with backpropagation
+    For pattern recognition in player movement
+]]
+
+function MLSystem:NeuralNetwork(layers)
+    local network = {
+        Layers = {},
+        LearningRate = 0.1
+    }
+    
+    -- Initialize weights
+    for i = 1, #layers - 1 do
+        local inputSize = layers[i]
+        local outputSize = layers[i + 1]
+        
+        network.Layers[i] = {
+            Weights = {},
+            Biases = {}
+        }
+        
+        for j = 1, outputSize do
+            network.Layers[i].Weights[j] = {}
+            network.Layers[i].Biases[j] = math.random() * 2 - 1
+            
+            for k = 1, inputSize do
+                network.Layers[i].Weights[j][k] = math.random() * 2 - 1
+            end
+        end
+    end
+    
+    function network:Sigmoid(x)
+        return 1 / (1 + math.exp(-x))
+    end
+    
+    function network:SigmoidDerivative(x)
+        return x * (1 - x)
+    end
+    
+    function network:Forward(input)
+        local outputs = {input}
+        
+        for i, layer in ipairs(self.Layers) do
+            local newOutput = {}
+            
+            for j = 1, #layer.Biases do
+                local sum = layer.Biases[j]
+                
+                for k = 1, #input do
+                    sum = sum + input[k] * layer.Weights[j][k]
+                end
+                
+                newOutput[j] = self:Sigmoid(sum)
+            end
+            
+            input = newOutput
+            table.insert(outputs, newOutput)
+        end
+        
+        return outputs
+    end
+    
+    function network:Train(input, target)
+        local outputs = self:Forward(input)
+        local finalOutput = outputs[#outputs]
+        
+        -- Calculate errors
+        local errors = {}
+        errors[#self.Layers + 1] = {}
+        
+        for i = 1, #target do
+            errors[#self.Layers + 1][i] = target[i] - finalOutput[i]
+        end
+        
+        -- Backpropagation
+        for i = #self.Layers, 1, -1 do
+            errors[i] = {}
+            local layer = self.Layers[i]
+            local nextErrors = errors[i + 1]
+            
+            for j = 1, #layer.Biases do
+                local error = 0
+                for k = 1, #nextErrors do
+                    error = error + nextErrors[k] * layer.Weights[k][j]
+                end
+                errors[i][j] = error * self:SigmoidDerivative(outputs[i + 1][j])
+            end
+            
+            -- Update weights
+            for j = 1, #layer.Biases do
+                layer.Biases[j] = layer.Biases[j] + self.LearningRate * errors[i + 1][j]
+                
+                for k = 1, #outputs[i] do
+                    layer.Weights[j][k] = layer.Weights[j][k] + 
+                        self.LearningRate * errors[i + 1][j] * outputs[i][k]
+                end
+            end
+        end
+    end
+    
+    return network
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SECTION 11: MAIN INITIALIZATION
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local Framework = {}
+Framework.__index = Framework
+
+function Framework.Init()
+    local self = setmetatable({}, Framework)
+    
+    -- Initialize core systems
+    self.UI = UIManager.new()
+    self.Visual = VisualSystem.new(self.UI)
+    self.Movement = MovementSystem.new()
+    self.ESP = ESPSystem.new()
+    self.Network = NetworkSystem.new()
+    self.Utility = UtilitySystem.new()
+    self.State = StateManager.new()
+    self.Governor = Governor.new()
+    self.Stealth = StealthSystem.new()
+    self.ML = MLSystem.new()
+    
+    -- Setup UI tabs
+    self:SetupUI()
+    
+    -- Main update loop
+    self:StartUpdateLoop()
+    
+    print("Framework initialized successfully")
+    return self
+end
+
+function Framework:SetupUI()
+    -- Visual Tab
+    local visualTab = self.UI:AddTab("Visual")
+    -- Add toggle buttons for chams, ESP, etc.
+    
+    -- Movement Tab
+    local moveTab = self.UI:AddTab("Movement")
+    -- Add speed, fly, noclip toggles
+    
+    -- Combat Tab
+    local combatTab = self.UI:AddTab("Combat")
+    -- Add aimbot, triggerbot settings
+    
+    -- Settings Tab
+    local settingsTab = self.UI:AddTab("Settings")
+    -- Add configuration options
+end
+
+function Framework:StartUpdateLoop()
+    game:GetService("RunService").RenderStepped:Connect(function(deltaTime)
+        -- Update ESP
+        self.ESP:Update()
+        
+        -- Update Visual systems
+        self.Visual:UpdateTracers()
+        self.Visual:UpdateSkeletons()
+        
+        -- Update State Manager
+        self.State:Update(deltaTime)
+        
+        -- Humanization
+        if self.Stealth.Layers.BehaviorHumanization then
+            -- Add random delays
+        end
+    end)
+end
+
+-- Initialize
+local function main()
+    -- Check environment
+    if not game:GetService("Players").LocalPlayer then
+        warn("This script must run on client")
+        return
+    end
+    
+    -- Start framework
+    _G.Framework = Framework.Init()
+end
+
+-- Auto-execute or manual
+if getgenv then
+    getgenv().Run = main
+else
+    main()
+end
+
+--[[
+    USAGE EXAMPLES:
+    
+    -- Enable ESP
+    _G.Framework.ESP.Settings.Enabled = true
+    
+    -- Enable Speed
+    _G.Framework.Movement:Toggle("Speed")
+    
+    -- Create Chams
+    _G.Framework.Visual:CreateChams(player, {Color = Color3.fromRGB(0, 255, 0)})
+    
+    -- Train ML Model
+    local model = _G.Framework.ML:NeuralNetwork({3, 5, 2})
+    model:Train({0.5, 0.2, 0.8}, {1, 0})
+]]
